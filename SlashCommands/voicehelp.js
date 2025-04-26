@@ -21,16 +21,7 @@ module.exports = {
                 .setFooter({ text: "You must be in a voice channel to use these commands" })
                 .addFields([
                     { name: "/voicedc", value: "Disconnects the bot from the voice channel", inline: false },
-                    { name: "/intro", value: `Plays ${client.user.username} introduction`, inline: false },
-                    { name: "/cheese", value: "Plays cheese sound", inline: false },
-                    { name: "/burp", value: "Plays burp sound", inline: false },
-                    { name: "/sticky", value: "Plays sticky keys sound", inline: false },
-                    { name: "/cabbagecat", value: "Plays cabbagecat sounds", inline: false },
-                    { name: "/beans", value: "Plays beans sound", inline: false },
-                    { name: "/dice", value: "Plays random dice number", inline: false },
-                    { name: "/bassdrop", value: "Plays bassdrop sound", inline: false },
-                    { name: "/dinosaur", value: "Plays dinosaur sound", inline: false },
-                    { name: "/huh", value: "Plays hallmusic made by <@!161297999182430209>", inline: false },
+                    { name: "/play", value: `Plays the audio that you selected`, inline: false },
                 ]);
 
             await interaction.reply({ embeds: [embed] });

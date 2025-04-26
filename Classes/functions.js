@@ -65,30 +65,28 @@ function playAudio(source, message) {
         const channel = message.member.voice.channel;
         if (!channel) {
             message.reply('Join a voice channel to use this command');
-        } else {
-            if(connection != null) {
-                connection.destroy();
-            }
-    
-            // const player = voiceDiscord.createAudioPlayer();
-            const resource = voiceDiscord.createAudioResource(`./audio/${source}`);
-    
-            connection = voiceDiscord.joinVoiceChannel({
-                channelId: channel.id,
-                guildId: message.guild.id,
-                adapterCreator: message.guild.voiceAdapterCreator
-            });
-            player.play(resource);
-            connection.subscribe(player);
-    
-
-            player.on(voiceDiscord.AudioPlayerStatus.Idle, () => {
-                connection.destroy();
-                connection = null
-            })
+            return;
         }
+        if (connection && connection.state.status !== voiceDiscord.VoiceConnectionStatus.Destroyed) {
+            connection.destroy();
+            connection = null;
+        }
+        const resource = voiceDiscord.createAudioResource(`./audio/${source}`);
+        connection = voiceDiscord.joinVoiceChannel({
+            channelId: channel.id,
+            guildId: message.guild.id,
+            adapterCreator: message.guild.voiceAdapterCreator
+        });
+        player.play(resource);
+        connection.subscribe(player);
+        player.once(voiceDiscord.AudioPlayerStatus.Idle, () => {
+            if (connection && connection.state.status !== voiceDiscord.VoiceConnectionStatus.Destroyed) {
+                connection.destroy();
+                connection = null;
+            }
+        });
     } catch (e) {
-        console.error(e)
+        console.error(e);
     }
 }
 /**
@@ -100,9 +98,9 @@ function stopAudio(message) {
     if (!channel) {
         message.reply('Join a voice channel to use this command');
     } else {
-        if(connection != null) {
+        if (connection && connection.state.status !== voiceDiscord.VoiceConnectionStatus.Destroyed) {
             connection.destroy();
-            connection = null
+            connection = null;
         }
     }
 }
