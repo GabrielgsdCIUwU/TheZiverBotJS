@@ -1,22 +1,30 @@
-const SlashCommand = require("../Structures/SlashCommand.js");
-
+const { SlashCommandBuilder } = require("discord.js");
 const { playAudio } = require("../Classes/functions.js");
-
 const { sendErrorDC, logError } = require("../Classes/errorLogging.js");
 
-module.exports = new SlashCommand({
-    name: "cheese",
-    description: "plays cheese sound in vc",
-
-    async run(message, args, client) {
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName("cheese")
+        .setDescription("Plays cheese sound in a voice channel"),
+    async run(interaction, client) {
         try {
-            playAudio('cheese.mp3', message);
-            message.reply("playing cheese");
-        } catch(error) {
-            logError(error, "SC-cheese")
-            sendErrorDC(client, message, "cheese", error)
-            message.reply("Something went wrong, please contact an admin for help.")
-        }
-    }
+            const channel = interaction.member.voice.channel;
+            if (!channel) {
+                return interaction.reply({
+                    content: "You must be in a voice channel to use this command.",
+                    ephemeral: true,
+                });
+            }
 
-});
+            playAudio("cheese.mp3", interaction);
+            await interaction.reply("Playing cheese.");
+        } catch (error) {
+            logError(error, "SC-cheese");
+            sendErrorDC(client, interaction, "cheese", error);
+            await interaction.reply({
+                content: "Something went wrong, please contact an admin for help.",
+                ephemeral: true,
+            });
+        }
+    },
+};

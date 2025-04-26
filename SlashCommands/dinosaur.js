@@ -1,22 +1,30 @@
-const SlashCommand = require("../Structures/SlashCommand.js");
-
+const { SlashCommandBuilder } = require("discord.js");
 const { playAudio } = require("../Classes/functions.js");
-
 const { sendErrorDC, logError } = require("../Classes/errorLogging.js");
 
-module.exports = new SlashCommand({
-    name: "dinosaur",
-    description: "plays dinosaur sound in vc",
-
-    async run(message, args, client) {
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName("dinosaur")
+        .setDescription("Plays dinosaur sound in a voice channel"),
+    async run(interaction, client) {
         try {
-            playAudio('dinosaur.mp3', message);
-            message.reply("playing dinosaur");
-        } catch(error) {
-            logError(error, "SC-dinosaur")
-            sendErrorDC(client, message, "dinosaur", error)
-            message.reply("Something went wrong, please contact an admin for help.")
-        }
-    }
+            const channel = interaction.member.voice.channel;
+            if (!channel) {
+                return interaction.reply({
+                    content: "You must be in a voice channel to use this command.",
+                    ephemeral: true,
+                });
+            }
 
-});
+            playAudio("dinosaur.mp3", interaction);
+            await interaction.reply("Playing dinosaur.");
+        } catch (error) {
+            logError(error, "SC-dinosaur");
+            sendErrorDC(client, interaction, "dinosaur", error);
+            await interaction.reply({
+                content: "Something went wrong, please contact an admin for help.",
+                ephemeral: true,
+            });
+        }
+    },
+};

@@ -1,22 +1,30 @@
-const SlashCommand = require("../Structures/SlashCommand.js");
-
+const { SlashCommandBuilder } = require("discord.js");
 const { playAudio } = require("../Classes/functions.js");
-
 const { sendErrorDC, logError } = require("../Classes/errorLogging.js");
 
-module.exports = new SlashCommand({
-    name: "sticky",
-    description: "plays stickykeys sound in vc",
-
-    async run(message, args, client) {
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName("sticky")
+        .setDescription("Plays sticky keys sound in the voice channel"),
+    async run(interaction, client) {
         try {
-            playAudio('stickykeys.mp3', message);
-            message.reply("playing sticky");
-        } catch(error) {
-            logError(error, "SC-sticky")
-            sendErrorDC(client, message, "sticky", error)
-            message.reply("Something went wrong, please contact an admin for help.")
-        }
-    }
+            const channel = interaction.member.voice.channel;
+            if (!channel) {
+                return interaction.reply({
+                    content: "You must be in a voice channel to use this command.",
+                    ephemeral: true,
+                });
+            }
 
-});
+            playAudio("stickykeys.mp3", interaction);
+            await interaction.reply("Playing sticky keys sound.");
+        } catch (error) {
+            logError(error, "SC-sticky");
+            sendErrorDC(client, interaction, "sticky", error);
+            await interaction.reply({
+                content: "Something went wrong, please contact an admin for help.",
+                ephemeral: true,
+            });
+        }
+    },
+};

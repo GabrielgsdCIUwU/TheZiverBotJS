@@ -1,12 +1,15 @@
-const SlashCommand = require("../Structures/SlashCommand.js");
+const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+
 
 const { playAudio } = require("../Classes/functions.js");
 
 const { sendErrorDC, logError } = require("../Classes/errorLogging.js");
+const { data } = require("./announcement.js");
 
-module.exports = new SlashCommand({
-    name: "bassdrop",
-    description: "plays bassdrop sound in vc",
+module.exports = {
+    data: new SlashCommandBuilder()
+    .setName("bassdrop")
+    .setDescription("plays bassdrop sound in vc"),
 
     async run(message, args, client) {
         try {
@@ -19,4 +22,4 @@ module.exports = new SlashCommand({
         }
     }
 
-});
+};

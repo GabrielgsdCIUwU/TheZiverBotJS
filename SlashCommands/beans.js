@@ -1,22 +1,30 @@
-const SlashCommand = require("../Structures/SlashCommand.js");
-
+const { SlashCommandBuilder } = require("discord.js");
 const { playAudio } = require("../Classes/functions.js");
-
 const { sendErrorDC, logError } = require("../Classes/errorLogging.js");
 
-module.exports = new SlashCommand({
-    name: "beans",
-    description: "plays beans sound in vc",
-
-    async run(message, args, client) {
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName("beans")
+        .setDescription("Plays beans sound in a voice channel"),
+    async run(interaction, client) {
         try {
-            playAudio('beansdrop.mp3', message);
-            message.reply("playing beans");
-        } catch(error) {
-            logError(error, "SC-beans")
-            sendErrorDC(client, message, "beans", error)
-            message.reply("Something went wrong, please contact an admin for help.")
-        }
-    }
+            const channel = interaction.member.voice.channel;
+            if (!channel) {
+                return interaction.reply({
+                    content: "You must be in a voice channel to use this command.",
+                    ephemeral: true,
+                });
+            }
 
-});
+            playAudio("beansdrop.mp3", interaction);
+            await interaction.reply("Playing beans.");
+        } catch (error) {
+            logError(error, "SC-beans");
+            sendErrorDC(client, interaction, "beans", error);
+            await interaction.reply({
+                content: "Something went wrong, please contact an admin for help.",
+                ephemeral: true,
+            });
+        }
+    },
+};
