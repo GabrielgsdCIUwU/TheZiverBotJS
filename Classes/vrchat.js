@@ -17,6 +17,7 @@ const fs = require('fs');
 
 // const { dbInsert, dbFindAndDelete, dbFindAndBan, dbFindAndUnban, dbFind } = require("./mongo.js");
 const { logError, sendServerErrorDC } = require("./errorLogging.js");
+const path = require('path');
 
 colors.enable()
 
@@ -38,42 +39,46 @@ let GroupApi = null
 let AuthenticationApi = null
 let CookieExpirationDate = null
 let TwoAuthCookieExpirationDate = null
+let axiosConfig;
 
 
 async function logout() {
     loggedin = false
     AuthenticationApi.logout()
 }
- 
+
 /**
  * 
  * @param {Date} now Date.
  */
-async function connect (now) {
-    return new Promise(async(resolve, reject) => {
+async function connect(now) {
+    return new Promise(async (resolve, reject) => {
         try {
-    
+            const { wrapper } = await import('axios-cookiejar-support');
+            const { CookieJar } = await import('tough-cookie');
+            const jar = new CookieJar();
+
             if (loggedin) {
                 console.warn('logging out!'.yellow)
                 AuthenticationApi.logout()
             }
-    
+
             let auth_token = null
             let two_auth_token = null
 
-            const path = './Data/cookies.json';
+            const pathCookies = path.join(__dirname, '../Data/cookies.json');
 
             // Check if the file exists
-            if (!fs.existsSync(path)) {
+            if (!fs.existsSync(pathCookies)) {
                 // Create an empty JSON file
-                fs.writeFileSync(path, JSON.stringify({}), 'utf-8');
+                fs.writeFileSync(pathCookies, JSON.stringify({}), 'utf-8');
             }
-    
-            let cookies = fs.readFileSync(path, "utf-8");
-            if (cookies !== "") {
-                axios.defaults.jar = tough.CookieJar.fromJSON(JSON.parse(cookies));
+
+            let cookies = fs.readFileSync(pathCookies, "utf-8");
+            if (cookies && cookies !== "{}") {
+                axios.default.jar = tough.CookieJar.fromJSON(JSON.parse(cookies));
                 cookies = JSON.parse(cookies)
-                cookies.cookies.forEach(cookie => {                    
+                cookies.cookies.forEach(cookie => {
                     if (cookie.expires && cookie.key == "auth") {
                         CookieExpirationDate = new Date(cookie.expires);
                         // console.log(CookieExpirationDate, new Date())
@@ -84,7 +89,7 @@ async function connect (now) {
                             console.log('Auth cookie has not expired'.green);
                             auth_token = cookie.value
                         }
-                    } else if(cookie.expires && cookie.key == "twoFactorAuth") {
+                    } else if (cookie.expires && cookie.key == "twoFactorAuth") {
                         TwoAuthCookieExpirationDate = new Date(cookie.expires);
                         // console.log(TwoAuthCookieExpirationDate, new Date())
                         if (TwoAuthCookieExpirationDate < new Date()) {
@@ -93,45 +98,47 @@ async function connect (now) {
                         } else {
                             console.log('TwoAuth Cookie has not expired'.green);
                             two_auth_token = cookie.value
-                        }   
+                        }
                     }
                 });
             }
-    
-            let axiosConfig = axios.create({
+
+            axiosConfig = wrapper(axios.create({
+                jar,
+                withCredentials: true,
                 headers: {
                     'Accept': '*/*',
                     'User-Agent': `${config.userAgent}`,
                 }
-            });
-    
+            }));
+
             AuthenticationApi = new vrchat.AuthenticationApi(configuration, undefined, axiosConfig);
-    
+
             let session = false;
-            if(auth_token != null && two_auth_token != null && !loggedin){
+            if (auth_token != null && two_auth_token != null && !loggedin) {
                 console.log()
-                await AuthenticationApi.verifyAuthToken({data: `auth=${auth_token}`}).then(resp => {
+                await AuthenticationApi.verifyAuthToken({ data: `auth=${auth_token}` }).then(resp => {
                     session = resp.data.ok;
                 }).catch(error => {
                     console.log('authToken invalid or expired!'.yellow)
                 })
             }
-    
+
             if (session) {
                 let newAxiosConfig = axios.create({
                     headers: {
                         'Accept': '*/*',
                         'User-Agent': `${config.userAgent}`,
-                        'auth':  `${auth_token}`
+                        'auth': `${auth_token}`
                     }
                 });
-    
-                // UsersApi = new vrchat.UsersApi(configuration, undefined, newAxiosConfig);
+
+                //UsersApi = new vrchat.UsersApi(configuration, undefined, newAxiosConfig);
                 // WorldApi = new vrchat.WorldsApi(configuration, undefined, newAxiosConfig);
                 GroupApi = new vrchat.GroupsApi(configuration, undefined, newAxiosConfig);
-    
-                AuthenticationApi.getCurrentUser(axiosConfig).then(async resp => {
-                    if(resp?.error ){
+
+                AuthenticationApi.getCurrentUser(newAxiosConfig).then(async resp => {
+                    if (resp?.error) {
                         console.log(await logError(resp?.error, "getCurrentUser"));
                         reject('Something went wrong with the connection!.')
                     } else {
@@ -140,7 +147,7 @@ async function connect (now) {
                         loggedin = true
                         resolve("logged in!")
                     }
-                    
+
                 }).catch(async error => {
                     console.warn(await logError(error, "getCurrentUser"), "getCurrentUser".underline.red)
                     reject('Something went wrong with the connection!. getCurrentUser')
@@ -148,62 +155,76 @@ async function connect (now) {
 
             } else {
                 console.log('Attempting login'.blue)
-                
-                axios.defaults.withCredentials = true;
-                axios.defaults.jar.setCookie(new tough.Cookie({ key: 'apiKey', value: 'JlE5Jldo5Jibnk5O5hTx6XVqsJu4WJ26' }), 'https://api.vrchat.cloud', {}, function() {});
-                
-                
-                AuthenticationApi.getCurrentUser().then(async resp => {
-                
+
+                await jar.setCookie('apiKey=JlE5Jldo5Jibnk5O5hTx6XVqsJu4WJ26', 'https://api.vrchat.cloud');
+
+                let newAxiosConfig = wrapper(axios.create({
+                    jar,
+                    withCredentials: true,
+                    headers: {
+                        'Accept': '*/*',
+                        'User-Agent': `${config.userAgent}`,
+                    }
+                }))
+
+                axiosConfig = newAxiosConfig;
+
+                AuthenticationApi.getCurrentUser(newAxiosConfig).then(async resp => {
+
                     let currentUser = resp;
-                
+
                     if (currentUser.displayName === undefined) {
-                
+
                         console.log("Attempting 2FA".blue);
                         const token = totp(process.env.VRC_2FA_SECRET);
-                
-                        await AuthenticationApi.verify2FA({ code: token }).then( resp => {
+
+                        await AuthenticationApi.verify2FA({ code: token }).then(resp => {
                             console.log(`Verified: ${resp.data.verified}`.blue);
                         }).catch(async error => {
                             console.warn(await logError(error, "verify2FA"), "verify2FA".underline.red)
                             reject('Something went wrong with the connection. verify2FA')
-                        }) 
-                
-                        let newCookies = JSON.stringify(axios.defaults.jar.toJSON());
-                        fs.writeFileSync("./Data/cookies.json", newCookies, "utf-8");
-    
-                        let cookie = JSON.parse(newCookies)
-    
-                        let newAxiosConfig = axios.create({
+                        })
+
+                        let newCookiesJSON = JSON.stringify(jar.toJSON());
+                        fs.writeFileSync(path.join(__dirname, "../Data/cookies.json"), newCookiesJSON, "utf-8");
+
+                        const jarFromFile = tough.CookieJar.fromJSON(newCookiesJSON);
+
+                        let newAxiosConfig = wrapper(axios.create({
+                            jar: jarFromFile,
+                            withCredentials: true,
                             headers: {
                                 'Accept': '*/*',
                                 'User-Agent': `${config.userAgent}`,
-                                'auth':  `${cookie.cookies[1].value}`
                             }
-                        });
-            
+                        }));
+
                         // UsersApi = new vrchat.UsersApi(configuration, undefined, newAxiosConfig);
                         // WorldApi = new vrchat.WorldsApi(configuration, undefined, newAxiosConfig);
                         GroupApi = new vrchat.GroupsApi(configuration, undefined, newAxiosConfig);
-                        
+
                         await AuthenticationApi.getCurrentUser().then(resp => {
                             currentUser = resp;
                         });
                     } else {
-    
-                        let cookies = JSON.stringify(axios.defaults.jar.toJSON());
+
+                        let cookies = JSON.stringify(jar.toJSON());
                         fs.writeFileSync("./Data/cookies.json", cookies, "utf-8");
-        
-                        let cookie = JSON.parse(cookies)
-    
-                        let newAxiosConfig = axios.create({
+
+                        const jarFromFile = tough.CookieJar.fromJSON(cookies);
+
+
+
+                        let newAxiosConfig = wrapper(axios.create({
+                            jar: jarFromFile,
+                            withCredentials: true,
                             headers: {
                                 'Accept': '*/*',
                                 'User-Agent': `${config.userAgent}`,
-                                'auth':  `${cookie.cookies[1].value}`
                             }
-                        });
-    
+                        }));
+
+
                         // UsersApi = new vrchat.UsersApi(configuration, undefined, newAxiosConfig);
                         // WorldApi = new vrchat.WorldsApi(configuration, undefined, newAxiosConfig);
                         GroupApi = new vrchat.GroupsApi(configuration, undefined, newAxiosConfig);
@@ -216,15 +237,15 @@ async function connect (now) {
                         resolve("logged in!")
                     }
 
-                }).catch( async error => {
-                    console.warn(await logError(error,"getCurrentUser TwoAuth"), "getCurrentUser TwoAuth".underline.red)
+                }).catch(async error => {
+                    console.warn(await logError(error, "getCurrentUser TwoAuth"), "getCurrentUser TwoAuth".underline.red)
                     reject("'Something went wrong with the connection. getCurrentUser TwoAuth")
                 })
-        
+
                 lastTime = now
             }
-        } catch(error) {
-            console.warn(await logError(error, "connect"), "connect".underline.red)
+        } catch (error) {
+            console.warn(await logError(error.message, "connect"), "connect".underline.red)
             reject('Something went wrong with the connection. catch')
         }
     });
@@ -233,7 +254,7 @@ async function connect (now) {
 // connect(new Date)
 // .catch( async error => ( console.warn(await logError(error), "Unhandled Connect".underline.red)));
 
-let state =  'offline';
+let state = 'offline';
 
 /**
  * 
@@ -244,31 +265,61 @@ let state =  'offline';
  */
 async function groupMemberCount(client, groupId, groupname) {
     return new Promise((resolve, reject) => {
-        GroupApi.getGroup(groupId).then( resp => {
+        GroupApi.getGroup(groupId).then(resp => {
             try {
-                const path = './Data/shared/members.json';
+                const pathMembers = path.join(__dirname, '../Data/shared/members.json');
 
                 // Check if the file exists
-                if (!fs.existsSync(path)) {
+                if (!fs.existsSync(pathMembers)) {
                     // Create an empty JSON file
-                    fs.writeFileSync(path, JSON.stringify({}), 'utf-8');
-                }  
-                let membersjson = JSON.parse(fs.readFileSync(path, "utf-8"))
+                    fs.writeFileSync(pathMembers, JSON.stringify({}), 'utf-8');
+                }
+                let membersjson = JSON.parse(fs.readFileSync(pathMembers, "utf-8"))
                 membersjson[groupname] = resp.data.memberCount
                 writeMemberCount(membersjson)
                 resolve(resp.data.memberCount)
-                
+
             } catch (error) {
                 logError(error, "groupMemberCount"), "groupMemberCount".underline.red
                 sendServerErrorDC(client, "groupMemberCountTry", error)
                 reject(error)
-            }  
+            }
         }).catch(async function (error) {
             console.warn(await logError(error, "groupMemberCount"), "groupMemberCount".underline.red)
             sendServerErrorDC(client, "groupMemberCount", error)
             reject(error)
         })
     })
+}
+/**
+ * 
+ * @param {Discord Client} client 
+ * @param {string} groupId 
+ * @param {string} title
+ * @param {string} text
+ * @param {boolean} [sendNotification=true] 
+ * @param {'public'} [visibility=vrchat.GroupPostVisibility.Public] 
+ * @returns 
+ */
+async function createGroupPost(client, groupId, title, text, sendNotification = true, visibility = vrchat.GroupPostVisibility.Public) {
+    return new Promise((resolve, reject) => {
+        const body = {
+            title,
+            text,
+            sendNotification,
+            visibility
+        }
+
+        GroupApi.addGroupPost(groupId, body)
+            .then(resp => {
+                resolve(resp.data)
+            })
+            .catch(async error => {
+                console.warn(await logError(error, "createGroupPost"), "createGroupPost".underline.red);
+                sendServerErrorDC(client, "createGroupPost", error);
+                reject(new Error(error));
+            });
+    });
 }
 
 async function writeMemberCount(membersjson) {
@@ -282,12 +333,12 @@ async function writeMemberCount(membersjson) {
  
 async function getAllMemberCounts() {
     try {
-        setInterval( async () => {
+        setInterval(async () => {
             await groupMemberCount(config.groupIdtheziver, "Zivergroup")
             await groupMemberCount(config.groupIdonlyrusk, "Onlyruskgroup")
             await groupMemberCount(config.groupIdcheese, "Cheesegroup")
             await groupMemberCount(config.groupIdavifair, "Avifairgroup")
-        } , 300000);
+        }, 300000);
         await groupMemberCount(config.groupIdtheziver, "Zivergroup")
         await groupMemberCount(config.groupIdonlyrusk, "Onlyruskgroup")
         await groupMemberCount(config.groupIdcheese, "Cheesegroup")
@@ -297,7 +348,7 @@ async function getAllMemberCounts() {
         sendServerErrorDC(client, "connect", error)
         await connect(new Date)
     }
-} 
+}
 
 /**
  * 
@@ -306,84 +357,84 @@ async function getAllMemberCounts() {
  * @returns String Completion status.
  */
 async function joinGroup(username, client) {
-return new Promise((resolve, reject) => {
-    GroupApi.getGroupRequests(config.groupId).then(result => {
-        
-        let index = 0
-        let requestExists = false
+    return new Promise((resolve, reject) => {
+        GroupApi.getGroupRequests(config.groupId).then(result => {
 
-        result.data.forEach(async function (request) {
-            index++
-            console.log(request.user.displayName + username)
-            if (request.user.displayName == username) {
-                requestExists = true
-                dbInsert(client.user.username, client.user.id, request.user.displayName, request.userId).then(async function(result) { 
-                    if (result == "User already registered.") {
-                        resolve(result)
-                    } else if (result == "User is banned.") {
-                        resolve(result)
-                    } else {
-                        await GroupApi.respondGroupJoinRequest(config.groupId, request.userId, '{"action" : "accept"}').then(result =>{
-                            resolve(`${username} accpeted.`)
-    
-                        }).catch(error => {
-                            dbFindAndDelete(client.user.id, request.userId).then(result => {
-                                if (result == "Entry notfound") {
-                                    console.warn(`${result} discordId:${client.user.id} vrchatId:${request.userId}`)
-                                }
-                                reject(error)
-                            }).catch(error =>{
-                                reject(error)
+            let index = 0
+            let requestExists = false
+
+            result.data.forEach(async function (request) {
+                index++
+                console.log(request.user.displayName + username)
+                if (request.user.displayName == username) {
+                    requestExists = true
+                    dbInsert(client.user.username, client.user.id, request.user.displayName, request.userId).then(async function (result) {
+                        if (result == "User already registered.") {
+                            resolve(result)
+                        } else if (result == "User is banned.") {
+                            resolve(result)
+                        } else {
+                            await GroupApi.respondGroupJoinRequest(config.groupId, request.userId, '{"action" : "accept"}').then(result => {
+                                resolve(`${username} accpeted.`)
+
+                            }).catch(error => {
+                                dbFindAndDelete(client.user.id, request.userId).then(result => {
+                                    if (result == "Entry notfound") {
+                                        console.warn(`${result} discordId:${client.user.id} vrchatId:${request.userId}`)
+                                    }
+                                    reject(error)
+                                }).catch(error => {
+                                    reject(error)
+                                })
                             })
-                        })
-                    }
-                }).catch(error => {
-                    resolve(error)
-                })
-            } else {
-                resolve("User not found. Did you request to join the VRChat group?")
-            }
+                        }
+                    }).catch(error => {
+                        resolve(error)
+                    })
+                } else {
+                    resolve("User not found. Did you request to join the VRChat group?")
+                }
 
 
 
 
-            // else if(index == result.data.length && requestExists == false) {
-            //     index = 0
-            //     requestExists = false
-            //     let memberAmount = 100
-                
-            //     GroupApi.getGroup(config.groupId).then(async function (group) {
+                // else if(index == result.data.length && requestExists == false) {
+                //     index = 0
+                //     requestExists = false
+                //     let memberAmount = 100
 
-            //         if (group.data.memberCount < 100) {
-            //             memberAmount = group.data.memberCount
-            //         }
-            //             await GroupApi.getGroupMembers(config.groupId, memberAmount).then( request => {
+                //     GroupApi.getGroup(config.groupId).then(async function (group) {
 
-            //                 request.data.forEach(member => {
-            //                     index++
-            //                     if (member.user.displayName === username) {
-            //                         requestExists = true
-        
-            //                         dbInsert(client.user.username, client.user.id, member.user.displayName, member.userId).then(async function(result) {
-            //                             resolve(`${username} accpeted .`)
-            //                         }).catch(error => {
-            //                             resolve(error)
-            //                         })
-            //                     } else if (index == request.data.length && requestExists == false) {
-            //                         resolve("User not found. Did you request to join the VRChat group?")
-            //                     }
-            //                 })
-            //             }).catch(error => {
-            //                 reject(error)
-            //             })
-            //         })
-            //     }
-        }) 
-    }).catch(error => {
-        reject(error)
+                //         if (group.data.memberCount < 100) {
+                //             memberAmount = group.data.memberCount
+                //         }
+                //             await GroupApi.getGroupMembers(config.groupId, memberAmount).then( request => {
+
+                //                 request.data.forEach(member => {
+                //                     index++
+                //                     if (member.user.displayName === username) {
+                //                         requestExists = true
+
+                //                         dbInsert(client.user.username, client.user.id, member.user.displayName, member.userId).then(async function(result) {
+                //                             resolve(`${username} accpeted .`)
+                //                         }).catch(error => {
+                //                             resolve(error)
+                //                         })
+                //                     } else if (index == request.data.length && requestExists == false) {
+                //                         resolve("User not found. Did you request to join the VRChat group?")
+                //                     }
+                //                 })
+                //             }).catch(error => {
+                //                 reject(error)
+                //             })
+                //         })
+                //     }
+            })
+        }).catch(error => {
+            reject(error)
+        })
+
     })
-    
-})
 }
 
 
@@ -395,15 +446,15 @@ return new Promise((resolve, reject) => {
 async function banUser(userId) {
     let reg = new RegExp('^usr_')
     return new Promise((resolve, reject) => {
-        if(reg.test(userId)) {
-            dbFind("none", userId).then(user => {  
+        if (reg.test(userId)) {
+            dbFind("none", userId).then(user => {
                 if (user == "User notfound.") {
                     resolve(`{"result": "${user}"}`)
                 } else {
                     if (user.banned == null) {
                         dbFindAndBan(user.discordId, user.vrchatId).then(result => {
                             if (result == "User banned.") {
-                                GroupApi.banGroupMember(config.groupId, `{"userId" : "${user.vrchatId}"}`).then(function() {
+                                GroupApi.banGroupMember(config.groupId, `{"userId" : "${user.vrchatId}"}`).then(function () {
                                     resolve(`{"result": "User banned", "vrcID": "${user.vrchatId}", "vrcN": "${user.vrchatName}", "dcID": "${user.discordId}", "dcN": "${user.discordName}"}`)
                                 }).catch(async function (error) {
                                     console.warn(await logError(error), "banUser".underline.red)
@@ -417,20 +468,20 @@ async function banUser(userId) {
                         })
                     } else {
                         resolve("{'result': 'User already banned.')")
-                    }      
-                }    
+                    }
+                }
             }).catch(error => {
                 reject(error)
             })
         } else {
-            dbFind(userId).then(user => {  
+            dbFind(userId).then(user => {
                 if (user == "User notfound.") {
                     resolve(`{"result": "${user}"}`)
                 } else {
                     if (user.banned == null) {
                         dbFindAndBan(user.discordId, user.vrchatId).then(result => {
                             if (result == "User banned.") {
-                                GroupApi.banGroupMember(config.groupId, `{"userId" : "${user.vrchatId}"}`).then(function() {
+                                GroupApi.banGroupMember(config.groupId, `{"userId" : "${user.vrchatId}"}`).then(function () {
                                     resolve(`{"result": "User banned", "vrcID": "${user.vrchatId}", "vrcN": "${user.vrchatName}", "dcID": "${user.discordId}", "dcN": "${user.discordName}"}`)
                                 }).catch(async function (error) {
                                     console.warn(await logError(error), "banUser".underline.red)
@@ -460,15 +511,15 @@ async function banUser(userId) {
 async function unbanUser(userId) {
     let reg = new RegExp('^usr_')
     return new Promise((resolve, reject) => {
-        if(reg.test(userId)) {
-            dbFind("none", userId).then(user => {  
+        if (reg.test(userId)) {
+            dbFind("none", userId).then(user => {
                 if (user == "User notfound.") {
                     resolve(`{"result": "${user}"}`)
                 } else {
                     if (user.banned == "yes") {
                         dbFindAndUnban(user.discordId, user.vrchatId).then(result => {
                             if (result == "User unbanned.") {
-                                GroupApi.unbanGroupMember(config.groupId, user.vrchatId).then(function() {
+                                GroupApi.unbanGroupMember(config.groupId, user.vrchatId).then(function () {
                                     resolve(`{"result": "User unbanned", "vrcID": "${user.vrchatId}", "vrcN": "${user.vrchatName}", "dcID": "${user.discordId}", "dcN": "${user.discordName}"}`)
                                 }).catch(async function (error) {
                                     console.warn(await logError(error), "unbanUser".underline.red)
@@ -482,20 +533,20 @@ async function unbanUser(userId) {
                         })
                     } else {
                         resolve('{"result": "User not banned."}')
-                    }      
-                }    
+                    }
+                }
             }).catch(error => {
                 reject(error)
             })
         } else {
-            dbFind(userId).then(user => {  
+            dbFind(userId).then(user => {
                 if (user == "User notfound.") {
                     resolve(`{"result": "${user}"}`)
                 } else {
                     if (user.banned == "yes") {
                         dbFindAndUnban(user.discordId, user.vrchatId).then(result => {
                             if (result == "User unbanned.") {
-                                GroupApi.unbanGroupMember(config.groupId, user.vrchatId).then(function() {
+                                GroupApi.unbanGroupMember(config.groupId, user.vrchatId).then(function () {
                                     resolve(`{"result": "User unbanned", "vrcID": "${user.vrchatId}", "vrcN": "${user.vrchatName}", "dcID": "${user.discordId}", "dcN": "${user.discordName}"}`)
                                 }).catch(async function (error) {
                                     console.warn(await logError(error), "unbanUser".underline.red)
@@ -536,13 +587,13 @@ async function online() {
             if (resp.data.statusDescription == "") {
                 resp.data.statusDescription = "none"
             }
-        resolve(resp.data)
-     }).catch(async function(error) {
-        console.log("Re initializing api.".blue)
-         await connect(now)
-         console.warn(await logError(error), "online".underline.red)
-        reject(error)
-     })
+            resolve(resp.data)
+        }).catch(async function (error) {
+            console.log("Re initializing api.".blue)
+            await connect(now)
+            console.warn(await logError(error), "online".underline.red)
+            reject(error)
+        })
     })
 }
 
@@ -552,8 +603,8 @@ async function online() {
  * @returns VRChat api world information.
  */
 async function getWorld(worldId) {
-    if(worldId == "private"){return {"name": "Private"}}
-    if(worldId == "offline"){return {"name": "Offline"}}
+    if (worldId == "private") { return { "name": "Private" } }
+    if (worldId == "offline") { return { "name": "Offline" } }
 
     return new Promise((resolve, reject) => {
         WorldApi.getWorld(worldId).then(resp => {
@@ -562,7 +613,7 @@ async function getWorld(worldId) {
             console.warn(await logError(error), "getWorldId".underline.red)
             reject(error)
         })
-    })   
+    })
 }
 
 /**
@@ -572,8 +623,8 @@ async function getWorld(worldId) {
  * @returns 
  */
 async function getInstance(worldId, instanceId) {
-    if(worldId == "private" || worldId == "offline"){return {"name": ""}}
-    
+    if (worldId == "private" || worldId == "offline") { return { "name": "" } }
+
     return new Promise((resolve, reject) => {
         WorldApi.getWorldInstance(worldId, instanceId).then(resp => {
             resolve(resp.data)
@@ -613,12 +664,12 @@ async function sendPing(state, client) {
         userChannel = await client.channels.cache.get('923611865001631764')
 
         now = new Date
-        switch(state){
+        switch (state) {
             case "online":
                 if (lastPing < now.getTime()) {
                     // adminChannel.send(`<@&924403524027154513> nota is online`);
                     userChannel.send(`<@&924403524027154513> nota is online`);
-    
+
                     lastPing = now.getTime() + config.pingTimout
                 } else {
                     // adminChannel.send(`nota is online`);
@@ -639,4 +690,6 @@ async function sendPing(state, client) {
     }
 }
 
-module.exports = { connect, online, onlineping, getWorld, getInstance, joinGroup, banUser, unbanUser, logout, groupMemberCount }
+
+
+module.exports = { connect, online, onlineping, getWorld, getInstance, joinGroup, banUser, unbanUser, logout, groupMemberCount, createGroupPost }
