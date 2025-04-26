@@ -270,6 +270,36 @@ async function groupMemberCount(client, groupId, groupname) {
         })
     })
 }
+/**
+ * 
+ * @param {Discord Client} client 
+ * @param {string} groupId 
+ * @param {string} title
+ * @param {string} text
+ * @param {boolean} [sendNotification=true] 
+ * @param {'public'} [visibility=vrchat.GroupPostVisibility.Public] 
+ * @returns 
+ */
+async function createGroupPost(client, groupId, title, text, sendNotification = true, visibility = vrchat.GroupPostVisibility.Public) {
+    return new Promise((resolve, reject) => {
+        const body = {
+            title,
+            text,
+            sendNotification,
+            visibility
+        }
+
+        GroupApi.addGroupPost(groupId, body)
+            .then(resp => {
+                resolve(resp.data)
+            })
+            .catch(async error => {
+                console.warn(await logError(error, "createGroupPost"), "createGroupPost".underline.red);
+                sendServerErrorDC(client, "createGroupPost", error);
+                reject(new Error(error));
+            });
+    });
+}
 
 async function writeMemberCount(membersjson) {
     fs.writeFile("./Data/shared/members.json", JSON.stringify(membersjson), function (error) {
@@ -639,4 +669,6 @@ async function sendPing(state, client) {
     }
 }
 
-module.exports = { connect, online, onlineping, getWorld, getInstance, joinGroup, banUser, unbanUser, logout, groupMemberCount }
+
+
+module.exports = { connect, online, onlineping, getWorld, getInstance, joinGroup, banUser, unbanUser, logout, groupMemberCount, createGroupPost }
